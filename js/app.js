@@ -1,222 +1,223 @@
-// ===== STATE =====
-const APP_KEY = 'studyarabic_v3';
+const APP_KEY = 'arabicfast_v1';
+let currentTab = 'quran';
 
 function getState() {
   const def = { score: 0, completed: [], quizScores: {} };
-  try {
-    const s = JSON.parse(localStorage.getItem(APP_KEY));
-    return s ? { ...def, ...s } : def;
-  } catch { return def; }
+  try { const s = JSON.parse(localStorage.getItem(APP_KEY)); return s ? { ...def, ...s } : def; }
+  catch { return def; }
 }
 function saveState(s) { localStorage.setItem(APP_KEY, JSON.stringify(s)); }
 
-function getLevel(score) {
-  let l = LEVELS[0];
-  for (const lv of LEVELS) { if (score >= lv.min) l = lv; }
-  return l;
-}
-
-// ===== RENDER ROADMAP =====
-function renderRoadmap() {
+// ===== RENDER TREE =====
+function renderTree() {
   const state = getState();
-  const rm = document.getElementById('roadmap');
+  const data = ROADMAPS[currentTab];
+  const tree = document.getElementById('tree');
   let html = '';
 
-  ROADMAP.forEach((sec, si) => {
-    html += `<section class="rm-section">`;
-    // connector dot
-    html += `<div class="rm-connector"><div class="rm-connector-dot"></div></div>`;
-    // section header
-    html += `<div class="rm-section-header">
-      <span class="rm-section-badge"><span class="sec-num">${si + 1}</span>${sec.title}</span>
-    </div>`;
-    // nodes
-    html += `<div class="rm-nodes">`;
-    sec.nodes.forEach(node => {
-      const done = state.completed.includes(node.id);
-      const unlocked = isUnlocked(node, state);
-      const cls = done ? 'completed' : unlocked ? 'available' : '';
-      const click = (done || unlocked) ? `onclick="openNode('${node.id}')"` : '';
+  data.sections.forEach(sec => {
+    // Section header
+    html += `<div class="tree-section"><span class="tree-section-label">${sec.title}</span></div>`;
 
-      html += `<div class="rm-node ${cls}" ${click}>`;
-      if (done) {
-        html += `<div class="node-status"><span class="node-status-icon">✓</span></div>`;
-      } else if (unlocked) {
-        html += `<div class="node-status"><span class="node-status-icon">▶</span></div>`;
+    // Group nodes into rows
+    sec.rows.forEach(row => {
+      if (row.center) {
+        // Center-only node
+        const n = row.center;
+        const done = state.completed.includes(n.id);
+        html += `<div class="tree-center-node">
+          <div class="tree-node" onclick="openNode('${n.id}')">
+            ${done ? '<span class="n-check done">✓</span>' : '<span class="n-check">▶</span>'}
+            <div class="n-title">${n.titleTh}</div>
+            <div class="n-ar">${n.titleAr}</div>
+          </div>
+        </div>`;
+      } else {
+        // Left / Right row
+        html += `<div class="tree-row">`;
+        html += `<div class="tree-left">`;
+        (row.left || []).forEach(n => {
+          const done = state.completed.includes(n.id);
+          html += `<div class="tree-node" onclick="openNode('${n.id}')">
+            ${done ? '<span class="n-check done">✓</span>' : '<span class="n-check">▶</span>'}
+            <div class="n-title">${n.titleTh}</div>
+            <div class="n-ar">${n.titleAr}</div>
+          </div>`;
+        });
+        html += `</div><div class="tree-spine"></div><div class="tree-right">`;
+        (row.right || []).forEach(n => {
+          const done = state.completed.includes(n.id);
+          html += `<div class="tree-node" onclick="openNode('${n.id}')">
+            ${done ? '<span class="n-check done">✓</span>' : '<span class="n-check">▶</span>'}
+            <div class="n-title">${n.titleTh}</div>
+            <div class="n-ar">${n.titleAr}</div>
+          </div>`;
+        });
+        html += `</div></div>`;
       }
-      html += `<div class="node-ar">${node.titleAr}</div>`;
-      html += `<div class="node-th">${node.titleTh}</div>`;
-      if (!done && !unlocked) html += `<div class="node-lock">🔒</div>`;
-      html += `</div>`;
     });
-    html += `</div></section>`;
   });
 
-  rm.innerHTML = html;
+  tree.innerHTML = html;
   updateStats();
 }
 
-function isUnlocked(node, state) {
-  if (!node.requires || node.requires.length === 0) return true;
-  return node.requires.every(r => state.completed.includes(r));
-}
-
-// ===== STATS =====
 function updateStats() {
   const state = getState();
-  const lv = getLevel(state.score);
-  const totalNodes = ROADMAP.reduce((a, s) => a + s.nodes.length, 0);
+  const data = ROADMAPS[currentTab];
+  const allNodes = [];
+  data.sections.forEach(s => s.rows.forEach(r => {
+    if (r.center) allNodes.push(r.center);
+    (r.left || []).forEach(n => allNodes.push(n));
+    (r.right || []).forEach(n => allNodes.push(n));
+  }));
+  const done = allNodes.filter(n => state.completed.includes(n.id)).length;
+  document.getElementById('scoreBadge').textContent = state.score + ' คะแนน';
+  document.getElementById('progressBadge').textContent = `${done}/${allNodes.length}`;
+}
 
-  document.getElementById('levelValue').textContent = lv.id;
-  document.getElementById('levelName').textContent = lv.nameTh;
-  document.getElementById('scoreValue').textContent = state.score;
-  document.getElementById('progressValue').textContent = `${state.completed.length}/${totalNodes}`;
-  document.getElementById('progressBar').style.width = `${(state.completed.length / totalNodes) * 100}%`;
+// ===== TABS =====
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  const data = ROADMAPS[tab];
+  document.getElementById('roadmapHeading').textContent = data.heading;
+  document.getElementById('roadmapDesc').textContent = data.desc;
+  renderTree();
 }
 
 // ===== MODAL =====
-function openNode(nodeId) {
-  const node = findNode(nodeId);
-  if (!node) return;
+function findNode(id) {
+  for (const tab of Object.values(ROADMAPS)) {
+    for (const sec of tab.sections) {
+      for (const row of sec.rows) {
+        if (row.center && row.center.id === id) return { node: row.center, secTitle: sec.title };
+        for (const n of (row.left || [])) { if (n.id === id) return { node: n, secTitle: sec.title }; }
+        for (const n of (row.right || [])) { if (n.id === id) return { node: n, secTitle: sec.title }; }
+      }
+    }
+  }
+  return null;
+}
+
+function openNode(id) {
+  const found = findNode(id);
+  if (!found) return;
+  const { node, secTitle } = found;
   const state = getState();
-  const sec = ROADMAP.find(s => s.nodes.some(n => n.id === nodeId));
 
-  // Header
-  document.getElementById('modalHeader').innerHTML = `
-    <div class="mh-section">${sec ? sec.title : ''}</div>
-    <div class="mh-title-ar">${node.titleAr}</div>
-    <div class="mh-title-th">${node.titleTh}</div>
-    ${node.desc ? `<div class="mh-desc">${node.desc}</div>` : ''}
-  `;
+  document.getElementById('modalHead').innerHTML = `
+    <div class="mh-tag">${secTitle}</div>
+    <div class="mh-ar">${node.titleAr}</div>
+    <div class="mh-th">${node.titleTh}</div>
+    ${node.desc ? `<div class="mh-desc">${node.desc}</div>` : ''}`;
 
-  // Body
   document.getElementById('modalBody').innerHTML = node.content;
 
   // Quiz
-  renderQuiz(node);
+  const qz = document.getElementById('modalQuiz');
+  if (node.quiz && node.quiz.length > 0) {
+    let qhtml = `<div class="quiz-title">แบบทดสอบ — ${node.titleTh}</div>`;
+    node.quiz.forEach((q, qi) => {
+      qhtml += `<div class="quiz-q" id="qq-${qi}"><div class="qq-text">${qi+1}. ${q.q}</div>`;
+      q.choices.forEach((c, ci) => {
+        qhtml += `<label><input type="radio" name="q${qi}" value="${ci}"> ${c}</label>`;
+      });
+      qhtml += `<div class="qq-feedback" id="qf-${qi}"></div></div>`;
+    });
+    qz.innerHTML = qhtml;
+  } else { qz.innerHTML = ''; }
 
   // Footer
-  const done = state.completed.includes(nodeId);
-  document.getElementById('modalFooter').innerHTML = done
-    ? `<div class="quiz-result show pass"><span class="qr-score">✓ ผ่านแล้ว (${state.quizScores[nodeId] || 0}%)</span><span class="qr-msg">คุณเรียนบทนี้แล้ว กดลองทำ Quiz ใหม่ได้</span></div><button class="quiz-submit-btn" onclick="submitQuiz('${nodeId}')">ตรวจคำตอบ</button>`
-    : `<button class="quiz-submit-btn" onclick="submitQuiz('${nodeId}')">ตรวจคำตอบ</button><div class="quiz-result" id="quizResult"></div>`;
+  const done = state.completed.includes(id);
+  document.getElementById('modalFoot').innerHTML = done
+    ? `<div class="quiz-result show pass"><span class="qr-score">✓ ผ่านแล้ว (${state.quizScores[id]||0}%)</span><span class="qr-msg">ทำ Quiz ใหม่ได้</span></div><button class="quiz-submit-btn" onclick="submitQuiz('${id}')">ตรวจคำตอบใหม่</button>`
+    : `<button class="quiz-submit-btn" onclick="submitQuiz('${id}')">ตรวจคำตอบ</button><div class="quiz-result" id="quizResult"></div>`;
 
-  // Show
   document.getElementById('modalOverlay').classList.add('open');
   document.getElementById('modalScroll').scrollTop = 0;
 }
 
-function closeModal() {
-  document.getElementById('modalOverlay').classList.remove('open');
-}
+function closeModal() { document.getElementById('modalOverlay').classList.remove('open'); }
 
-function renderQuiz(node) {
-  const qz = document.getElementById('modalQuiz');
-  if (!node.quiz || node.quiz.length === 0) { qz.innerHTML = ''; return; }
-
-  let html = `<div class="quiz-title">แบบทดสอบ — ${node.titleTh}</div>`;
-  node.quiz.forEach((q, qi) => {
-    html += `<div class="quiz-q" id="qq-${qi}">
-      <div class="qq-text">${qi + 1}. ${q.q}</div>`;
-    q.choices.forEach((c, ci) => {
-      html += `<label><input type="radio" name="q${qi}" value="${ci}"> ${c}</label>`;
-    });
-    html += `<div class="qq-feedback" id="qf-${qi}"></div></div>`;
-  });
-  qz.innerHTML = html;
-}
-
-function submitQuiz(nodeId) {
-  const node = findNode(nodeId);
-  if (!node || !node.quiz) return;
-
+function submitQuiz(id) {
+  const found = findNode(id);
+  if (!found) return;
+  const node = found.node;
   let correct = 0;
+
   node.quiz.forEach((q, qi) => {
     const el = document.getElementById(`qq-${qi}`);
     const sel = document.querySelector(`input[name="q${qi}"]:checked`);
-    const userVal = sel ? parseInt(sel.value) : -1;
-    const fb = document.getElementById(`qf-${qi}`);
-
-    // Disable radios
+    const val = sel ? parseInt(sel.value) : -1;
     document.querySelectorAll(`input[name="q${qi}"]`).forEach(r => r.disabled = true);
-
-    if (userVal === q.answer) {
-      correct++;
-      el.classList.add('correct');
-      fb.textContent = '✓ ถูกต้อง!' + (q.feedback ? ' ' + q.feedback : '');
+    const fb = document.getElementById(`qf-${qi}`);
+    if (val === q.answer) {
+      correct++; el.classList.add('correct');
+      fb.textContent = '✓ ถูกต้อง!';
     } else {
       el.classList.add('incorrect');
-      fb.textContent = '✗ ผิด — คำตอบที่ถูก: ' + q.choices[q.answer] + (q.feedback ? ' — ' + q.feedback : '');
+      fb.textContent = '✗ คำตอบที่ถูก: ' + q.choices[q.answer];
     }
   });
 
   const pct = Math.round((correct / node.quiz.length) * 100);
   const passed = pct >= 60;
   const state = getState();
-  const wasDone = state.completed.includes(nodeId);
+  const wasDone = state.completed.includes(id);
 
   if (passed && !wasDone) {
-    state.completed.push(nodeId);
+    state.completed.push(id);
     state.score += (node.points || 20);
-    state.quizScores[nodeId] = pct;
+    state.quizScores[id] = pct;
     saveState(state);
-
-    const oldLv = getLevel(state.score - (node.points || 20));
-    const newLv = getLevel(state.score);
-    if (newLv.id > oldLv.id) showBadge(newLv);
-
-    renderRoadmap();
-  } else if (passed && wasDone && pct > (state.quizScores[nodeId] || 0)) {
-    state.quizScores[nodeId] = pct;
+    renderTree();
+  } else if (passed && wasDone && pct > (state.quizScores[id] || 0)) {
+    state.quizScores[id] = pct;
     saveState(state);
   }
 
-  // Show result
-  const footer = document.getElementById('modalFooter');
-  footer.innerHTML = `<div class="quiz-result show ${passed ? 'pass' : 'fail'}">
+  document.getElementById('modalFoot').innerHTML = `<div class="quiz-result show ${passed?'pass':'fail'}">
     <span class="qr-score">${pct}% (${correct}/${node.quiz.length})</span>
-    <span class="qr-msg">${passed ? (wasDone ? 'ทำแล้ว คะแนนไม่เพิ่ม' : `ผ่าน! +${node.points || 20} คะแนน`) : 'ยังไม่ผ่าน (ต้อง 60% ขึ้นไป) อ่านบทเรียนอีกครั้ง'}</span>
-    ${!passed ? `<br><button class="retry-btn" onclick="openNode('${nodeId}')">ลองอีกครั้ง</button>` : ''}
+    <span class="qr-msg">${passed ? (wasDone ? 'ทำแล้ว' : `ผ่าน! +${node.points||20} คะแนน`) : 'ยังไม่ผ่าน (ต้อง 60%)'}</span>
+    ${!passed ? `<br><button class="retry-btn" onclick="openNode('${id}')">ลองอีกครั้ง</button>` : ''}
   </div>`;
-
   updateStats();
 }
 
-function showBadge(lv) {
-  document.getElementById('badgePopupIcon').textContent = lv.badge;
-  document.getElementById('badgePopupTitle').textContent = `เลื่อนขั้นเป็น ${lv.nameTh}!`;
-  document.getElementById('badgePopupDesc').textContent = lv.desc;
-  const el = document.getElementById('badgePopup');
-  el.classList.add('show');
-  setTimeout(() => el.classList.remove('show'), 3500);
-}
-
-function findNode(id) {
-  for (const s of ROADMAP) {
-    const n = s.nodes.find(n => n.id === id);
-    if (n) return n;
-  }
-  return null;
+// ===== DARK MODE =====
+function toggleTheme() {
+  const html = document.documentElement;
+  const next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+  html.setAttribute('data-theme', next);
+  localStorage.setItem('arabicfast_theme', next);
+  document.getElementById('themeToggle').textContent = next === 'dark' ? '☀️' : '🌙';
 }
 
 // ===== INIT =====
 document.addEventListener('DOMContentLoaded', () => {
-  renderRoadmap();
+  // Theme
+  const saved = localStorage.getItem('arabicfast_theme');
+  if (saved) {
+    document.documentElement.setAttribute('data-theme', saved);
+    document.getElementById('themeToggle').textContent = saved === 'dark' ? '☀️' : '🌙';
+  }
 
-  // Close modal: click overlay or X
-  document.getElementById('modalOverlay').addEventListener('click', e => {
-    if (e.target === document.getElementById('modalOverlay')) closeModal();
-  });
-  document.getElementById('modalClose').addEventListener('click', closeModal);
+  // Tabs
+  document.querySelectorAll('.tab-btn').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
 
-  // Esc key
+  // Modal
+  document.getElementById('modalOverlay').addEventListener('click', e => { if (e.target.id === 'modalOverlay') closeModal(); });
+  document.getElementById('modalX').addEventListener('click', closeModal);
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+  // Theme toggle
+  document.getElementById('themeToggle').addEventListener('click', toggleTheme);
 
   // Reset
   document.getElementById('resetBtn').addEventListener('click', () => {
-    if (confirm('รีเซ็ตความก้าวหน้าทั้งหมด?')) {
-      localStorage.removeItem(APP_KEY);
-      location.reload();
-    }
+    if (confirm('รีเซ็ตความก้าวหน้าทั้งหมด?')) { localStorage.removeItem(APP_KEY); location.reload(); }
   });
+
+  switchTab('quran');
 });
